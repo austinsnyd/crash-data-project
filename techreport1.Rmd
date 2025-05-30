@@ -1,0 +1,275 @@
+---
+title: 'Technical Report Summary: Analysis of Crash Data in New Zealand (2009)'
+author: "Austin Snyder"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(VGAM)
+library(ggplot2)
+library(flexplot)
+library(MASS)
+library(dplyr)
+library(boot)
+library(knitr)
+library(kableExtra)
+data(package = "VGAM")
+```
+
+# Introduction
+
+This report investigates crash data from New Zealand in 2009, focusing on incidents involving motorcyclists, pedestrians, and bicyclists. The primary goal is to provide actionable insights for improving road safety and informing policy interventions. Specifically, this analysis addresses two key questions:
+
+- How dangerous is riding a motorcycle as a primary means of transportation?
+- Are motorcycles the most common means of transportation involved in crashes on weekends?
+
+To answer these questions, we analyzed crash data categorized by the hour of the day and the day of the week. Using statistical models like Poisson and Negative Binomial regression, we forecast crash counts and identified patterns and interactions among key variables.
+
+## Data Overview
+
+The dataset, sourced from the VGAM package in R, comprises three subsets:
+
+- **Crashmc**: Crash counts involving motorcyclists.
+- **Crashp**: Crash counts involving pedestrians.
+- **Crashbc**: Crash counts involving bicyclists.
+
+Each subset is structured as a matrix with:
+
+- **Rows**: Hours of the day (24-hour format, 0–23).
+- **Columns**: Days of the week (Monday to Sunday).
+
+### Data Preparation
+
+The data was restructured into a long format to aid in analysis and visualization. A combined dataset was created, including:
+
+- **Type**: Mode of transportation (motorcyclist, pedestrian, bicyclist).
+- **Day**: Day of the week (Monday to Sunday).
+- **Hour**: Hour of the day (0–23).
+- **Count**: Number of crashes recorded.
+
+Below is a preview of the restructured data:
+
+```{r, echo=FALSE}
+data(crashmc)
+data(crashp)
+data(crashbc)
+
+hour <- as.numeric(rownames(crashmc))
+crashmc2 <- stack(crashmc)
+names(crashmc2) <- c("Count", "Day")
+crashmc2$Hour <- rep(hour, ncol(crashmc))
+crashmc2$Type <- "Motorcyclist"
+
+crashp2 <- stack(crashp)
+names(crashp2) <- c("Count", "Day")
+crashp2$Hour <- rep(hour, ncol(crashp))
+crashp2$Type <- "Pedestrian"
+
+crashbc2 <- stack(crashbc)
+names(crashbc2) <- c("Count", "Day")
+crashbc2$Hour <- rep(hour, ncol(crashbc))
+crashbc2$Type <- "Bicycle"
+
+combined_data <- rbind(crashmc2, crashp2, crashbc2)
+combined_data$Day <- factor(combined_data$Day, levels = c("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"))
+
+kable(head(combined_data), caption = "Preview of Combined Dataset") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+```
+
+The restructured dataset enables detailed analysis of crash patterns by time, day, and type of transportation.
+
+```{r, echo=FALSE}
+ggplot(data = subset(combined_data, Type == "Motorcyclist"), aes(x = Hour, y = Count, group = Day)) +
+  geom_point(aes(colour = Day)) +
+  geom_line(aes(colour = Day)) +
+  labs(title = "Crashes Involving Motorcyclists by Day and Time", x = "Hour of the Day", y = "Number of Crashes")
+```
+Here we see the patterns of crashes are relatively similar for weekdays, there are some noticeable differences between weekdays and weekends, specifically between the hours of 5 - 15.
+
+
+```{r, echo=FALSE}
+ggplot(data = subset(combined_data, Type == "Bicycle"), aes(x = Hour, y = Count, group = Day)) +
+  geom_point(aes(colour = Day)) +
+  geom_line(aes(colour = Day)) +
+  labs(title = "Crashes Involving Bicycles by Day and Time", x = "Hour of the Day", y = "Number of Crashes")
+```
+Similar to the Motorcyclist data, the Bicycle data shows a similar pattern for weekdays, with some noticeable differences between weekdays and weekends.
+
+```{r, echo=FALSE}
+ggplot(data = subset(combined_data, Type == "Pedestrian"), aes(x = Hour, y = Count, group = Day)) +
+  geom_point(aes(colour = Day)) +
+  geom_line(aes(colour = Day)) +
+  labs(title = "Crashes Involving Pedestrians by Day and Time", x = "Hour of the Day", y = "Number of Crashes")
+```
+The Pedestrian data shows a similar pattern to the Motorcyclist and Bicycle data, you can see weekend instances are higher in the first couple hours of the day.
+
+# Methods
+
+## Statistical Models
+
+### Poisson Regression
+
+Poisson regression is often used to model count data. This model assumes that the mean and variance of the response variable are equal. For our dataset, crash counts are the response variable, while predictors include:
+
+- **Type**: Mode of transportation (motorcyclist, pedestrian, bicyclist).
+- **DayGroup**: Weekdays (Monday–Friday) vs. weekends (Saturday–Sunday).
+- **TimeCategory**: Divided into Early Morning (12–6 AM), Morning (6 AM–12 PM), Afternoon (12–6 PM), and Evening (6 PM–12 AM).
+
+Interaction terms were included to capture combined effects of predictors:
+
+$$
+\text{Count}_{i} \sim \text{Type}_{i} * \text{DayGroup}_{i} * \text{TimeCategory}_{i}
+$$
+
+### Addressing Overdispersion
+
+Initial diagnostics revealed overdispersion in the Poisson model, indicated by a residual deviance significantly higher than the degrees of freedom. Overdispersion occurs when the variance exceeds the mean, violating Poisson assumptions. To address this, we fitted a **Negative Binomial regression model**, which introduces a dispersion parameter to better handle variability in the data.
+
+### Model Evaluation
+
+Models were compared using the following metrics:
+
+- **Akaike Information Criterion (AIC)**: Measures model fit, with lower values indicating better fit.
+- **Bayesian Information Criterion (BIC)**: Similar to AIC but penalizes model complexity more strongly.
+- **Mean Squared Prediction Error (MSPE)**: Evaluates predictive performance using k-fold cross-validation.
+
+flexplot is used to visualize our restructured data. Flexplot is a package developed by Dr. Dustin Fife that reduces the friction of creating visualizations in R and leverages human strengths while reducing human biases.
+
+```{r, include=FALSE}
+combined_data_grouped <- combined_data %>%
+  mutate(
+    DayGroup = ifelse(Day %in% c("Mon", "Tue", "Wed", "Thu", "Fri"), "Weekday", "Weekend"),
+    TimeCategory = cut(Hour, breaks = c(-1, 5.5, 11.5, 17.5, 24), 
+                       labels = c("EarlyMorning", "Morning", "Afternoon", "Evening"))
+  )
+mod_grouped_nb <- glm.nb(Count ~ Type * DayGroup * TimeCategory, data = combined_data_grouped)
+summary(mod_grouped_nb)
+```
+
+
+```{r, echo=FALSE}
+suppressMessages({
+  flexplot(Count ~ TimeCategory | Type + DayGroup, data = combined_data_grouped, method = "poisson", ghost.line = "gray") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1, size = 10),
+          strip.text = element_text(size = 12))
+})
+```
+We can see that there are some likely interactions between the type, day group, and time category. When modeling our poisson regression model we will include these interactions.
+
+```{r, echo=FALSE, results='hide'}
+mod_grouped <- glm(Count ~ Type* DayGroup * TimeCategory, data = combined_data_grouped, family = "poisson")
+summary(mod_grouped)
+```
+
+## Residual Diagnostics
+
+To assess model fit, we plotted residuals for both the Poisson and Negative Binomial models:
+
+```{r, echo=FALSE}
+par(mfrow = c(1, 2))
+plot(residuals(mod_grouped, type = "deviance"), main = "Poisson Model Residuals", xlab = "Index", ylab = "Deviance Residuals")
+plot(residuals(mod_grouped_nb, type = "deviance"), main = "Negative Binomial Model Residuals", xlab = "Index", ylab = "Deviance Residuals")
+par(mfrow = c(1, 1))
+```
+
+Residual plots highlight that the Negative Binomial model provides a better fit, as deviations are more evenly distributed.
+
+## Model Comparison
+
+The table above summarizes model performance, with the Negative Binomial model demonstrating lower AIC and BIC values, indicating better fit. While the Poisson model shows a slightly lower MSPE, its inability to handle overdispersion justifies selecting the Negative Binomial model for predictive analysis.
+
+# Results
+
+## Question 1: How Dangerous is Riding a Motorcycle as a Primary Means of Transportation?
+
+The analysis revealed that motorcyclists are at a higher risk of being involved in crashes compared to pedestrians and bicyclists. This risk is especially pronounced during commuting hours (morning and evening on weekdays) and recreational hours (afternoon on weekends). The table below summarizes the predicted crash counts for motorcyclists during these time periods:
+
+```{r, echo=FALSE}
+# Ensure that the predicted values column exists in the dataset
+if (!"fits_nb" %in% colnames(combined_data_grouped)) {
+  combined_data_grouped$fits_nb <- predict(mod_grouped_nb, combined_data_grouped, type = "response")
+}
+
+# Compute commuting_summary
+commuting_summary <- combined_data_grouped %>%
+  filter((DayGroup == "Weekday" & TimeCategory %in% c("Morning", "Evening")) |
+         (DayGroup == "Weekend" & TimeCategory == "Afternoon")) %>%
+  group_by(Type, DayGroup, TimeCategory) %>%
+  summarize(PredictedCrashes = sum(fits_nb, na.rm = TRUE), .groups = 'drop')
+
+# Display the summary table
+kable(commuting_summary, caption = "Predicted Crash Counts for Commuting and Recreational Hours") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+
+```
+
+The results indicate that motorcycles consistently exhibit higher predicted crash counts across these periods compared to bicycles and pedestrians.
+
+## Question 2: Are Motorcycles the Most Common Means of Transportation Involved in Crashes on Weekends?
+
+Weekend crash data highlights that motorcycles are indeed the most common means of transportation involved in crashes, aside from cars. The total predicted crash counts for weekends by type of transportation are summarized below:
+
+```{r, echo=FALSE}
+weekend_summary <- combined_data_grouped %>%
+  filter(DayGroup == "Weekend") %>%
+  group_by(Type) %>%
+  summarize(TotalPredictedCrashes = sum(fits_nb), .groups = 'drop') %>%
+  arrange(desc(TotalPredictedCrashes))
+
+kable(weekend_summary, caption = "Total Predicted Crash Counts for Weekends by Transportation Type") %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed"))
+```
+
+The bar plot below provides a visual comparison of the predicted crash counts:
+
+```{r, echo=FALSE}
+ggplot(weekend_summary, aes(x = reorder(Type, -TotalPredictedCrashes), y = TotalPredictedCrashes, fill = Type)) +
+  geom_bar(stat = "identity") +
+  labs(title = "Predicted Crash Counts on Weekends by Transportation Type", x = "Transportation Type", y = "Total Predicted Crashes") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+The analysis predicts 416 crashes involving motorcyclists on weekends, reinforcing their higher risk compared to bicyclists and pedestrians.
+
+## Overall Interpretation
+
+Motorcyclists face significantly higher risks of crashes, particularly during recreational and commuting hours. The elevated risk on weekends underscores the need for targeted safety interventions, such as public awareness campaigns or enhanced traffic enforcement during high-risk periods.
+
+## Conclusion
+
+This analysis emphasizes the increased vulnerability of motorcyclists, particularly on weekends. The Negative Binomial model was utilized for predicting crash trends, as it effectively addressed overdispersion in the data. While the findings offer valuable insights, the analysis is limited by the lack of variables such as weather conditions, road characteristics, and demographics.
+
+## Future Work
+
+To build upon this analysis, the following areas should be explored:
+
+- **Improved Data Collection**: Collect additional variables, including traffic flow, weather, road conditions, speed limits, and crosswalk presence, to enhance model accuracy and reliability.
+- **Policy Recommendations**: Develop targeted safety measures for motorcyclists, with a focus on high-risk times and days identified in this study.
+- **Model Refinements**: Explore dynamic models, such as time series, to forecast crash risks in real-time and assess the impact of interventions over time.
+
+
+# Apendicies 
+
+### Poisson Regression code and output 
+
+```{r}
+mod_grouped <- glm(Count ~ Type* DayGroup * TimeCategory, data = combined_data_grouped, family = "poisson")
+summary(mod_grouped)
+```
+
+### Negative Binomial Regression code and output 
+
+```{r}
+mod_grouped_nb <- glm.nb(Count ~ Type * DayGroup * TimeCategory, data = combined_data_grouped)
+summary(mod_grouped_nb)
+```
+
+
+
+

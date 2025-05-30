@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Crash Data Analysis - New Zealand (2009)</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f4f4f4;
+      margin: 0;
+      padding: 0 20px;
+      color: #333;
+    }
+    header {
+      background-color: #222;
+      color: white;
+      padding: 30px 20px;
+      text-align: center;
+    }
+    section {
+      max-width: 800px;
+      margin: 40px auto;
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    }
+    a {
+      color: #007acc;
+    }
+    ul {
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🚦 Crash Data Analysis: New Zealand (2009)</h1>
+    <p>By Austin Snyder</p>
+  </header>
+
+  <section>
+    <h2>📄 Project Overview</h2>
+    <p>This project investigates road crash data from New Zealand in 2009, focusing on incidents involving <strong>motorcyclists</strong>, <strong>pedestrians</strong>, and <strong>bicyclists</strong>. Using Poisson and Negative Binomial regression, the analysis explores the time-based distribution of crash risk by mode of transport and evaluates which group is most vulnerable, especially during weekends.</p>
+    <p><a href="crash_analysis_final.html">👉 View the Full Report (HTML)</a></p>
+    <p><a href="7b094df3-fd64-4918-ba15-62a6a9b277d1.pdf">📘 PDF Summary Write-up</a></p>
+  </section>
+
+  <section>
+    <h2>🔧 Methods</h2>
+    <ul>
+      <li>Crash data matrices transformed into long format</li>
+      <li>Modeling conducted using Poisson and Negative Binomial regressions</li>
+      <li>Interaction effects modeled: <code>Type × DayGroup × TimeCategory</code></li>
+      <li>Model selection via AIC, BIC, and cross-validation</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>📊 Key Findings</h2>
+    <ul>
+      <li>Motorcyclists exhibit the highest crash risk across all evaluated time periods</li>
+      <li>Crash counts spike for motorcycles during weekend afternoons and weekday commuting hours</li>
+      <li>Negative Binomial model better handles overdispersion in the data</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>📂 Tools & Tech</h2>
+    <ul>
+      <li>R (ggplot2, flexplot, MASS, VGAM)</li>
+      <li>R Markdown for reproducible reporting</li>
+    </ul>
+  </section>
+</body>
+</html>
